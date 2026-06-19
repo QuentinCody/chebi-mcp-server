@@ -22,6 +22,8 @@ export function registerCodeMode(server: McpServer, env: CodeModeEnv): void {
 
 	const executeTool = createExecuteTool({
 		prefix: "chebi",
+		// Verifiable provenance: chebi_execute results carry a _meta.citation.
+		source: { id: "chebi", name: "ChEBI", url: "https://www.ebi.ac.uk/chebi", license: "CC BY 4.0" },
 		catalog: chebiCatalog,
 		apiFetch,
 		doNamespace: env.CHEBI_DATA_DO,
