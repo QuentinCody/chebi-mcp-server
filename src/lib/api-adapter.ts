@@ -1,6 +1,8 @@
 // interlinked-tdd: exempt
 import type { ApiFetchFn } from "@bio-mcp/shared/codemode/catalog";
 import { chebiFetch } from "./http";
+import { chebiCompleteness } from "./completeness";
+import { readChebiResponse } from "./response";
 
 /**
  * OLS4 search/select endpoints accept an `ontology` filter. We always pin
@@ -27,33 +29,21 @@ interface ChebiApiAdapterEnv {
 
 export function createChebiApiFetch(env?: ChebiApiAdapterEnv): ApiFetchFn {
 	return async (request) => {
-		const params = withChebiScope(request.path, request.params);
-		const response = await chebiFetch(request.path, params, {
-			baseUrl: env?.CHEBI_BASE_URL,
-		});
-
-		if (!response.ok) {
-			let errorBody: string;
-			try {
-				errorBody = await response.text();
-			} catch {
-				errorBody = response.statusText;
-			}
-			const error = new Error(
-				`HTTP ${response.status}: ${errorBody.slice(0, 300)}`,
-			) as Error & { status: number; data: unknown };
-			error.status = response.status;
-			error.data = errorBody;
-			throw error;
+		const native = request.path.startsWith("/native/");
+		if (!(native ? ["GET", "POST"] : ["GET"]).includes(request.method) || (request.method === "GET" && request.body !== undefined)) {
+			throw Object.assign(new Error("ChEBI supports native GET/POST reads and OLS GET without a body"), { status: 405 });
 		}
-
-		const contentType = response.headers.get("content-type") || "";
-		if (!contentType.includes("json")) {
-			const text = await response.text();
-			return { status: response.status, data: { text } };
-		}
-
-		const data = await response.json();
-		return { status: response.status, data };
+		const path = native ? request.path.slice("/native".length) : request.path;
+		const params = native ? request.params : withChebiScope(path, request.params);
+		const result = await readChebiResponse(() => chebiFetch(path, params, {
+			baseUrl: native ? "https://www.ebi.ac.uk/chebi/backend/api/public" : env?.CHEBI_BASE_URL,
+			method: native ? request.method : "GET",
+			body: native && request.body !== undefined ? JSON.stringify(request.body) : undefined,
+			headers: native ? { Accept: "*/*", "Content-Type": "application/json" } : undefined,
+			timeout: 30_000,
+			deadlineMs: 30_000,
+		}));
+		const completeness = chebiCompleteness(result.data);
+		return { ...result, ...(completeness ? { completeness } : {}) };
 	};
 }

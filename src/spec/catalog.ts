@@ -1,14 +1,14 @@
 // interlinked-tdd: exempt
 import type { ApiCatalog } from "@bio-mcp/shared/codemode/catalog";
+import { nativeEndpoints } from "./native";
 
 /**
- * ChEBI MCP server catalog (OLS4-backed).
+ * ChEBI MCP server catalog (OLS4 ontology and native ChEBI 2.0 chemistry).
  *
  * ChEBI is the EBI's chemical ontology of small biological molecules — the
  * canonical chemistry vocabulary that underpins ChEMBL and HMDB cross-
- * references. The native ChEBI Web Services API is SOAP-only; the modern
- * REST surface is exposed through OLS4 (Ontology Lookup Service v4) at
- * https://www.ebi.ac.uk/ols4/api.
+ * references. Native ChEBI 2.0 REST operations use the /native routing
+ * prefix; existing ontology operations use OLS4 at https://www.ebi.ac.uk/ols4/api.
  *
  * The api-adapter pins `ontology=chebi` on `/search`, `/select`, and
  * `/suggest` calls automatically, so callers can omit it. Endpoints under
@@ -24,21 +24,25 @@ import type { ApiCatalog } from "@bio-mcp/shared/codemode/catalog";
  * - `annotation.has_alternative_id` (legacy ChEBI IDs)
  */
 export const chebiCatalog: ApiCatalog = {
-	name: "ChEBI (via OLS4)",
+	name: "ChEBI (native chemistry + OLS4 ontology)",
 	baseUrl: "https://www.ebi.ac.uk/ols4/api",
-	version: "OLS4 / ChEBI 251",
+	version: "OLS4 / ChEBI 2.0 REST",
 	auth: "none",
-	endpointCount: 11,
+	endpointCount: 11 + nativeEndpoints.length,
 	notes:
-		"- ChEBI is served via the EBI Ontology Lookup Service (OLS4). The native ChEBI Web Services API is SOAP-only and not used here.\n" +
+		"- /native/* routes to https://www.ebi.ac.uk/chebi/backend/api/public; other paths retain OLS4 ontology access. Native REST replaced retired SOAP services.\n" +
+		"- Native compound/search results retain their provider shape, including curation stars and identifiers; they do not use the OLS HAL envelope. MOLFILE/SVG outputs return exact UTF-8 {text}. Reads cap at 8 MiB and 30 seconds including the body; use bounded pages. Native GET/POST reads and OLS GET are supported.\n" +
+		"- Native chemistry searches default to three_star_only=true; false includes two-star entries. Retain curation metadata when comparing results. POST JSON uses api.post(path, body, params).\n" +
+		"- Bulk ontology, TSV, SDF, JSON and PostgreSQL products: https://ftp.ebi.ac.uk/pub/databases/chebi/ — these are external downloads, not an installed query backend.\n" +
 		"- /search, /select, and /suggest are auto-pinned to `ontology=chebi` by the adapter — callers can omit `ontology` on those.\n" +
 		"- IRI/path-segment quirks: OLS4 paths that take an IRI as a path segment (e.g. /ontologies/chebi/terms/{iri}) require DOUBLE URL-encoding of the IRI. Example: `http://purl.obolibrary.org/obo/CHEBI_17234` → `http%253A%252F%252Fpurl.obolibrary.org%252Fobo%252FCHEBI_17234`. Code Mode `api.get` does single-URL-encoding when interpolating path params; for term-detail endpoints, prefer the `?iri=...` query-param form documented below — it only requires single encoding.\n" +
 		"- ID formats: ChEBI uses two interchangeable forms — short_form `CHEBI_17234` and obo_id `CHEBI:17234`. The IRI form is `http://purl.obolibrary.org/obo/CHEBI_17234`. Search responses include all three.\n" +
 		"- Cross-reference enrichment: every term carries `annotation.database_cross_reference` with URIs like `kegg.compound:C00031`, `cas:50-99-7`, `wikipedia.en:Glucose`. Use these to chain into kegg-mcp-server, pubchem-mcp-server, unichem-mcp-server.\n" +
 		"- Hierarchy navigation: /children, /descendants, /parents, /ancestors take the term IRI in path. Combine with `?size=200` for batch traversal.\n" +
-		"- HAL+JSON envelope: list responses wrap arrays in `_embedded.terms` with `_links` and `page` metadata. The staging engine auto-unwraps this — staged tables come out as `chebi_terms`.\n" +
+		"- HAL+JSON envelope: list responses wrap arrays in `_embedded.terms` with `_links` and `page` metadata. A sole terms collection stages as `chebi_terms`; multiple collections retain separate names. Inspect chebi_get_schema before querying.\n" +
 		"- Search responses use a different envelope: `{ response: { docs: [...], numFound: N } }`. Staged into `chebi_search_hits`.",
 	endpoints: [
+		...nativeEndpoints,
 		// ── search ───────────────────────────────────────────────
 		{
 			method: "GET",
